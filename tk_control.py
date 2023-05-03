@@ -101,6 +101,7 @@ def detect_user_block(img: np.ndarray, reader: CnOcr | None = None, model: Neura
 
     img_light = np.where(np.max(img, axis=-1) > 255 / 2.2, 255, 0).astype(np.uint8)
     img_light = np.stack([img_light] * 3, axis=-1)
+    cv2.imwrite(f'{out_dir}/sc-{idx}-l.png', img_light)
     # cv2.imshow('img_light', img_light)
     # cv2.waitKey(0)
 
@@ -163,8 +164,12 @@ def detect_user_block(img: np.ndarray, reader: CnOcr | None = None, model: Neura
                 x_ed = d_flat.shape[0] - x
             if x_ed - x_st > 1:
                 digit = pad_img(d[:, x + x_st:x + x_ed], 10, 16)
-                digits.append(digit)
-                cnt += 1
+                if x_ed - x_st >= 5 or (x_ed - x_st < 5 and np.count_nonzero(digit) > 10):
+                    digits.append(digit)
+                    cnt += 1
+                else:
+                    x += x_ed
+                    continue
             x += x_ed
         digit_length.append(cnt)
         # print(f'digit length: {cnt}')
