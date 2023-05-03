@@ -1,0 +1,8 @@
+display_screen: 0
+num_screens: 2
+icon_path: dictionary/icon.png
+debug: True
+toolbar_left: False
+out_file: out.csv
+nn_config:
+  img_size: [96, 96]
