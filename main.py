@@ -50,8 +50,7 @@ def main(args: dict):
     ocr = CnOcr(rec_model_name='chinese_cht_PP-OCRv3')
     config = yaml.load(open('config.yaml', 'r'), Loader=yaml.FullLoader)
     nn = NeuralNetworks(
-        num_class=10,
-        weights_path='digit.pth',
+        pt_path='nn.pt',
         config=config['nn_config']
     )
     # create tk controller

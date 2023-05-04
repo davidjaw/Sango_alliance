@@ -4,33 +4,29 @@ import cv2
 from typing import List, Tuple, Dict
 import os
 import torch
-import torch.nn as nn
-from torchvision import transforms, models
+from torchvision import transforms
 
 
 class NeuralNetworks(object):
     def __init__(
             self,
-            num_class: int,
-            weights_path: str,
+            pt_path: str,
             config: Dict,
             device: torch.device | None = None,
             name_dict_path: str | None = None
     ):
+        super().__init__()
         if device is None:
             self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        model = models.mobilenet_v3_small()
-        model.classifier[-1] = nn.Linear(model.classifier[-1].in_features, num_class)
-        st_dict = torch.load(weights_path)
-        model.load_state_dict(st_dict)
-        self.model: models.MobileNetV3 = model.to(self.device)
+        model = torch.jit.load(pt_path)
+        self.model = model.to(self.device)
         self.config = config
         self.img_size = config['img_size']
         self.name_dict_path = name_dict_path
         self.class_to_idx = None
         self.idx_to_class = None
 
-    def predict(self, image: np.ndarray) -> np.ndarray:
+    def predict(self, image) -> np.ndarray:
         data_preprocess = transforms.Compose([
             transforms.Resize(self.img_size),
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
@@ -43,11 +39,10 @@ class NeuralNetworks(object):
         image = image.permute(0, 3, 1, 2)
         image = data_preprocess(image)
         image = image.to(self.device)
-        self.model.eval()
         with torch.no_grad():
-            output = self.model(image)
-            _, pred = torch.max(output, 1)
-        return pred.cpu().numpy()
+            pred = self.model(image)
+            _, pred = torch.max(pred, dim=1)
+            return pred.cpu().numpy()
 
 
 class ScreenCap(object):

@@ -8,6 +8,9 @@ import keyboard
 from tabulate import tabulate
 from cnocr import CnOcr
 import csv
+import matplotlib
+import matplotlib.pyplot as plt
+matplotlib.use('TkAgg')
 
 
 def pad_img(img_to_pad, max_w, max_h):
@@ -48,6 +51,7 @@ class TkController(object):
         self.detect_button = None
         self.create_widgets()
         self.data: List[List[str | int]] = []
+        self.coord_dict = []
         self.tk_root.protocol("WM_DELETE_WINDOW", self.on_leaving)
 
     def create_widgets(self):
@@ -80,7 +84,10 @@ class TkController(object):
             idx = len(os.listdir(out_dir))
         cv2.imwrite(f'{out_dir}/sc-{idx}.png', img)
         data = detect_user_block(img, reader=self.ocr, **self.kwargs)
-        self.data.extend(data)
+        for idx, d in enumerate(data):
+            if d[-1] not in self.coord_dict:
+                self.coord_dict.append(d[-1])
+                self.data.extend([d])
 
     def mainloop(self):
         self.tk_root.geometry("300x100")
@@ -89,9 +96,9 @@ class TkController(object):
 
 def detect_user_block(img: np.ndarray, reader: CnOcr | None = None, model: NeuralNetworks | None = None, **_)\
         -> List[List[str | int]]:
-    img = img[170:615, 30:840]
+    img = img[170:615, 30:1100]
     idx = 0
-    out_dir = 'tmp/sc/full'
+    out_dir = 'tmp/sc-full'
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
     else:
@@ -99,14 +106,18 @@ def detect_user_block(img: np.ndarray, reader: CnOcr | None = None, model: Neura
     cv2.imwrite(f'{out_dir}/sc-{idx}.png', img)
     random_int = np.random.randint(0, 1e7)
 
-    img_light = np.where(np.max(img, axis=-1) > 255 / 2.2, 255, 0).astype(np.uint8)
+    img_light = np.where(np.max(img, axis=-1) > 255 / 2.5, 255, 0).astype(np.uint8)
     img_light = np.stack([img_light] * 3, axis=-1)
-    cv2.imwrite(f'{out_dir}/sc-{idx}-l.png', img_light)
     # cv2.imshow('img_light', img_light)
     # cv2.waitKey(0)
 
     # find y axis
     img_light_flat = np.max(img_light, axis=(1, 2))
+    img_light_hline = np.count_nonzero(img_light.mean(axis=-1), axis=1)
+    img_light_flat[img_light_hline > img_light.shape[1] * .3] = 0
+    img_light_flat[img_light_hline < 10] = 0
+    img_light_debug = img_light_flat[:, None, None] * img_light
+    cv2.imwrite(f'{out_dir}/sc-{idx}-l.png', img_light_debug * 255)
     y_sections = []
     min_height = 10
     y = 0
@@ -114,8 +125,9 @@ def detect_user_block(img: np.ndarray, reader: CnOcr | None = None, model: Neura
         y_st = np.nonzero(img_light_flat[y:] > 0)[0][0]
         y_ed = np.argmin(img_light_flat[y + y_st:]) + y_st
         if y_ed - y_st > min_height:
-            # divide into 5 part of x-axis image
-            x_sections = np.array_split(img_light[y + y_st:y + y_ed], 5, axis=1)
+            # divide into 7 part of x-axis image
+            x_sections = np.array_split(img_light[y + y_st:y + y_ed], 7, axis=1)
+            x_sections.pop(5)
             if x_sections[1].max() == 0:
                 y += y_ed
                 continue
@@ -147,29 +159,40 @@ def detect_user_block(img: np.ndarray, reader: CnOcr | None = None, model: Neura
     # cv2.waitKey(0)
 
     # get each digit and predict
+    max_w = 10
     digit_length = []
     digits = []
-    for d in digit_patch:
+    for d_idx, d in enumerate(digit_patch):
         d_flat = np.max(d, axis=(0, 2))
         cnt = 0
         x = 0
         while x < d_flat.shape[0] and np.max(d_flat[x:]) > 0:
             debug_d = d.copy()
             debug_d[:, x] = [0, 0, 255]
+            # if d_idx % 5 == 4:
+            #     plt.imshow(debug_d)
+            #     plt.show(block=False)
+            #     print()
             # cv2.imshow('img', debug_d)
             # cv2.waitKey(0)
             x_st = np.nonzero(d_flat[x:])[0][0]
             x_ed = np.argmin(d_flat[x_st + x:]) + x_st
             if x_ed == x_st:
                 x_ed = d_flat.shape[0] - x
+            if x_ed - x_st > max_w:
+                x_ed = x_st + max_w
             if x_ed - x_st > 1:
-                digit = pad_img(d[:, x + x_st:x + x_ed], 10, 16)
-                if x_ed - x_st >= 5 or (x_ed - x_st < 5 and np.count_nonzero(digit) > 10):
+                digit = d[:, x + x_st:x + x_ed]
+                digit = pad_img(digit, 10, 16)
+                if x_ed - x_st >= 5 or (x_ed - x_st < 5 and np.count_nonzero(digit.max(axis=-1)) > 10):
                     digits.append(digit)
-                    cnt += 1
+                elif d_idx % 5 == 4 and np.count_nonzero(digit.max(axis=-1)) < 10:
+                    # comma in coordinate
+                    digits.append(np.ones_like(digit) * 255)
                 else:
                     x += x_ed
                     continue
+                cnt += 1
             x += x_ed
         digit_length.append(cnt)
         # print(f'digit length: {cnt}')
@@ -180,15 +203,22 @@ def detect_user_block(img: np.ndarray, reader: CnOcr | None = None, model: Neura
     digits_pred = model.predict(digits_np).astype(str)
     cnt = 0
     for idx, u_data in enumerate(user_data):
-        for i in range(4):
-            d_len = digit_length[idx * 4 + i]
-            num = int(''.join(digits_pred[cnt:cnt + d_len]))
-            u_data.append(f'{num:,}')
+        for i in range(5):
+            d_len = digit_length[idx * 5 + i]
+            digit_str = ''.join(digits_pred[cnt:cnt + d_len])
+            if i == 4:
+                digits_coord = digits_np[cnt:cnt + d_len].mean(axis=(1, 2, 3))
+                comma_idx = np.argmax(digits_coord)
+                digit_str = digit_str[:comma_idx] + ', ' + digit_str[comma_idx + 1:]
+                u_data.append(digit_str[1:-1])
+            else:
+                num = int(digit_str)
+                u_data.append(f'{num:,}')
             cnt += d_len
     # for idx, digit in enumerate(digits_pred):
     #     cv2.imwrite(f'tmp/digit/{digit}-{random_int}.png', digits_np[idx])
     table_format = "grid"
-    print(tabulate(user_data, headers=['ID', '貢獻', '戰功', '捐獻', '勢力值'], tablefmt=table_format))
+    print(tabulate(user_data, headers=['ID', '貢獻', '戰功', '捐獻', '勢力值', '座標'], tablefmt=table_format))
     return user_data
 
 
@@ -197,12 +227,12 @@ if __name__ == '__main__':
     reader = CnOcr(rec_model_name='chinese_cht_PP-OCRv3')
     config = yaml.load(open('config.yaml', 'r'), Loader=yaml.FullLoader)
     nn = NeuralNetworks(
-        num_class=10,
-        weights_path='digit.pth',
+        pt_path='nn.pt',
         config=config['nn_config']
     )
     imgs = os.listdir('tmp/sc')
     for img in imgs:
+        print(img)
         img = cv2.imread(f'tmp/sc/{img}')
         detect_user_block(img, reader, nn)
 
