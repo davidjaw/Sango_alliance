@@ -7,7 +7,6 @@
 ## Demo video
 
 https://www.youtube.com/watch?v=3twTnTO2wRY
-<iframe width="560" height="315" src="https://www.youtube.com/embed/3twTnTO2wRY" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
 
 ## 安裝
 * 請先下載 [Visual Studio 函式庫](https://learn.microsoft.com/zh-tw/cpp/windows/latest-supported-vc-redist?view=msvc-170)
@@ -18,7 +17,6 @@ https://www.youtube.com/watch?v=3twTnTO2wRY
 ### 參考用安裝影片 (請先下載並安裝 VS 函式庫、python 和 git):
 
 https://www.youtube.com/watch?v=pCnBXA1c80c
-<iframe width="560" height="315" src="https://www.youtube.com/embed/pCnBXA1c80c" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
 
 ### 安裝步驟
 
