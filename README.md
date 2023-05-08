@@ -21,7 +21,7 @@ https://www.youtube.com/watch?v=3twTnTO2wRY
   * 如果不小心動到，可以把程式關了再重新執行
 
 ## 安裝
-* 請先下載 [Visual Studio 函式庫](https://learn.microsoft.com/zh-tw/cpp/windows/latest-supported-vc-redist?view=msvc-170)
+有很多套件要預先下載 & 安裝
 * 下載 [python 3.10](https://www.python.org/downloads/)
 * 下載 [git](https://git-scm.com/downloads)
 
@@ -63,7 +63,14 @@ pip3 install torch torchvision torchaudio --index-url https://download.pytorch.o
 pip3 install torch torchvision torchaudio
 ```
 
-5. 安裝其他套件
+5. 先安裝該死的 `Polygon3`
+* 這個 library compile 有一些 C++ 套件相關的坑，這是我 compile 過的檔案，目前測試 win10, win11 應該是能直接用這個檔案安裝，如果有安全疑慮也可以略過這步驟自己用 `pip` compile
+  * 特別感謝 `宇佐美暁` 幫忙花一堆時間踩坑測試
+```ps1
+pip install .\whl\Polygon3-3.0.9.1-cp310-cp310-win_amd64.whl
+```
+
+6. 安裝其他套件
 ```ps1
 pip3 install -r requirements.txt
 ```
