@@ -17,6 +17,8 @@ https://www.youtube.com/watch?v=3twTnTO2wRY
 * 中文辨識方面目前是使用 [CnOCR](https://github.com/breezedeus/CnOCR) 套件，辨識度頗低，但是還是能勉強辨識到ID
   * 可以從座標去判斷到底是誰
   * 截圖的同時也會把原圖存到 `tmp/sc` 和 `tmp/sc-full`, 都是有跡可循
+* 開始執行後記得不要再移動遊戲視窗、也不要對視窗縮放
+  * 如果不小心動到，可以把程式關了再重新執行
 
 ## 安裝
 * 請先下載 [Visual Studio 函式庫](https://learn.microsoft.com/zh-tw/cpp/windows/latest-supported-vc-redist?view=msvc-170)
@@ -65,4 +67,13 @@ pip3 install torch torchvision torchaudio
 ```ps1
 pip3 install -r requirements.txt
 ```
+
+## Troubleshooting
+### 1. 執行 `./venv/Scripts/activate` 時報錯
+  * 如果是說找不到 `activate`，將命令改成 `./venv/Scripts/Activate.ps1` 或 `./venv/Scripts/activate.bat`
+  * 如果是說`venv\Scripts\Activate.ps1 cannot be loaded because running scripts is disabled on this system. For more information, see about_Execution_Policies`, 先嘗試解法 1，沒效再試試看解法 2
+    * 參考 [解法1](https://dev.to/aka_anoop/enabling-virtualenv-in-windows-powershell-ka3)，在 powershell 輸入 `Set-ExecutionPolicy -ExecutionPolicy Unrestricted -Scope CurrentUser`
+    * 參考 [解法2](https://stackoverflow.com/questions/18713086/virtualenv-wont-activate-on-windows) 在 powershell 輸入 `Set-ExecutionPolicy Unrestricted -Scope Process`
+
+
 
