@@ -75,6 +75,13 @@ pip install .\whl\Polygon3-3.0.9.1-cp310-cp310-win_amd64.whl
 pip3 install -r requirements.txt
 ```
 
+7. 把你三國志戰略版的視窗放到左上角 (雙螢幕的話放到主螢幕的左上角)
+8. 在 powershell 開啟程式 `python main.py`, 如果有抓到遊戲會有額外的視窗跳出來
+    * 可以按 `Detect` 或者鍵盤的空白鍵進行抓取
+      * 可以到 `tmp/sc` 看抓到的圖片
+    * 如果都抓完了，關閉跳出來的視窗就會把抓到的資料存到 `out.csv` 檔
+    * 如果抓取過程中跳程式錯誤，目前應該只能到 powershell 按下 `Control + C` 終止程式，然後再重新執行
+
 ## Troubleshooting
 ### 1. 執行 `./venv/Scripts/activate` 時報錯
   * 如果是說找不到 `activate`，將命令改成 `./venv/Scripts/Activate.ps1` 或 `./venv/Scripts/activate.bat`
