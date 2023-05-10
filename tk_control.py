@@ -127,15 +127,26 @@ def detect_user_block(img: np.ndarray, reader: CnOcr | None = None, model: Neura
         if y_ed - y_st > min_height:
             # divide into 7 part of x-axis image
             x_sections = np.array_split(img_light[y + y_st:y + y_ed], 7, axis=1)
+            x_sections_ori = np.array_split(img[y + y_st:y + y_ed], 7, axis=1)
+            x_sections[0] = [x_sections[0][:, 5:], x_sections_ori[0][:, 5:]]
+            # cv2.imshow('img', x_sections[0])
+            # cv2.waitKey()
             x_sections.pop(5)
             if x_sections[1].max() == 0:
                 y += y_ed
                 continue
             for idx, xs in enumerate(x_sections):
+                temp = None
+                if idx == 0:
+                    temp = xs[1]
+                    xs = xs[0]
                 xs_flat = np.max(xs, axis=0)
                 xs_st = np.nonzero(xs_flat)[0][0]
                 xs_ed = xs_flat.shape[0] - np.nonzero(xs_flat[::-1])[0][0]
-                x_sections[idx] = xs[:, xs_st:xs_ed]
+                if idx == 0:
+                    x_sections[idx] = [xs[:, xs_st:xs_ed], temp[:, xs_st:xs_ed]]
+                else:
+                    x_sections[idx] = xs[:, xs_st:xs_ed]
             y_sections.append(x_sections)
         else:
             y += y_ed
@@ -144,10 +155,23 @@ def detect_user_block(img: np.ndarray, reader: CnOcr | None = None, model: Neura
 
     user_data = [[] for _ in range(len(y_sections))]
 
+    # name_dir = 'tmp/name'
+    # if not os.path.exists(name_dir):
+    #     os.makedirs(name_dir)
     name_patch = []
     digit_patch = []
     for i, y_section in enumerate(y_sections):
-        name_patch.append(y_section[0])
+        mask = cv2.GaussianBlur(y_section[0][0], (5, 5), 0)
+        mask_heq = cv2.equalizeHist(mask[:, :, 0]) / 255.
+        mask_heq_u = mask_heq + .15
+        mask_heq[mask_heq > 0] = mask_heq_u[mask_heq > 0]
+        mask_heq = np.clip(mask_heq, 0, 1)
+        name_p = mask_heq[:, :, None] * y_section[0][1].astype(np.float32)
+        name_p = np.max(name_p, axis=-1)
+        name_p = name_p / np.max(name_p) * 255
+        # cv2.imwrite(f'{name_dir}/name-{random_int}-{i}.png', name_p.astype(np.uint8))
+        # cv2.imwrite(f'{name_dir}/name-{random_int}-{i}-2.png', (mask_heq * 255.).astype(np.uint8))
+        name_patch.append(name_p)
         digit_patch.extend(y_section[1:])
     # predict name
     # name_patch_np = np.asarray(name_patch)
