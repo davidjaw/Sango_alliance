@@ -161,12 +161,14 @@ def detect_user_block(img: np.ndarray, reader: CnOcr | None = None, model: Neura
     name_patch = []
     digit_patch = []
     for i, y_section in enumerate(y_sections):
+        mask_ori = np.max(y_section[0][0], axis=-1) / 255.
         mask = cv2.GaussianBlur(y_section[0][0], (5, 5), 0)
         mask_heq = cv2.equalizeHist(mask[:, :, 0]) / 255.
         mask_heq_u = mask_heq + .15
         mask_heq[mask_heq > 0] = mask_heq_u[mask_heq > 0]
         mask_heq = np.clip(mask_heq, 0, 1)
-        name_p = mask_heq[:, :, None] * y_section[0][1].astype(np.float32)
+        mask = np.where(mask_ori > mask_heq, mask_ori, mask_heq)
+        name_p = mask[:, :, None] * y_section[0][1].astype(np.float32)
         name_p = np.max(name_p, axis=-1)
         name_p = name_p / np.max(name_p) * 255
         # cv2.imwrite(f'{name_dir}/name-{random_int}-{i}.png', name_p.astype(np.uint8))
