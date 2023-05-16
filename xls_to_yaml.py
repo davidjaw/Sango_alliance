@@ -30,5 +30,13 @@ for i, letter in enumerate(range(ord('a'), ord('z') + 1)):
     })
     idx += 1
 
+for i, letter in enumerate(range(ord('0'), ord('9') + 1)):
+    data.append({
+        'index': idx,
+        'unicode': hex(letter),
+        'content': chr(letter)
+    })
+    idx += 1
+
 with open('data.yaml', 'w', encoding='utf-8') as f:
     yaml.dump(data, f, allow_unicode=True)

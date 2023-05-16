@@ -14578,3 +14578,33 @@
 - content: z
   index: 4859
   unicode: '0x7a'
+- content: '0'
+  index: 4860
+  unicode: '0x30'
+- content: '1'
+  index: 4861
+  unicode: '0x31'
+- content: '2'
+  index: 4862
+  unicode: '0x32'
+- content: '3'
+  index: 4863
+  unicode: '0x33'
+- content: '4'
+  index: 4864
+  unicode: '0x34'
+- content: '5'
+  index: 4865
+  unicode: '0x35'
+- content: '6'
+  index: 4866
+  unicode: '0x36'
+- content: '7'
+  index: 4867
+  unicode: '0x37'
+- content: '8'
+  index: 4868
+  unicode: '0x38'
+- content: '9'
+  index: 4869
+  unicode: '0x39'

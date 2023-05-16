@@ -3,9 +3,10 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset, random_split
-from torchvision.transforms import Lambda, Compose
+from torchvision.transforms import Lambda, Compose, ToTensor, Resize, RandomAffine, RandomRotation
+import torchvision.transforms.functional as TF
 from torchvision import transforms, models, datasets
-from PIL import Image
+from PIL import Image, ImageOps
 from torch.utils.tensorboard import SummaryWriter
 import numpy as np
 import itertools
@@ -15,7 +16,27 @@ import yaml
 import torchvision.utils as vutils
 import torch.nn.functional as F
 from torch.optim.lr_scheduler import StepLR
-import dataloader
+import data_loader
+
+
+class RandomPad:
+    def __init__(self, pad_range=(0, 5), fill=0, p_identical=0.5):
+        self.pad_range = pad_range
+        self.fill = fill
+        self.p_identical = p_identical
+
+    def __call__(self, img):
+        if random.random() < self.p_identical:
+            padding = random.randint(*self.pad_range)
+            pad_l = pad_r = pad_t = pad_b = padding
+        else:
+            pad_l = random.randint(*self.pad_range)
+            pad_r = random.randint(*self.pad_range)
+            pad_t = random.randint(*self.pad_range)
+            pad_b = random.randint(*self.pad_range)
+
+        img = ImageOps.expand(img, (pad_l, pad_t, pad_r, pad_b), fill=self.fill)
+        return img
 
 
 class RandomPixelDrop:
@@ -124,7 +145,9 @@ def confusion_matrix(preds, labels, num_classes):
 def main():
     task_target = 'ocr'
     torch.manual_seed(9527)
-    num_class = len(os.listdir('dataset')) // 4
+    with open('data.yaml', 'r', encoding='utf-8') as f:
+        data = yaml.safe_load(f)
+    num_class = len(data)
     # read config from 'nn_config.yaml'
     config = yaml.load(open('nn_config.yaml', 'r'), Loader=yaml.FullLoader)
     default_config = config['default']
@@ -138,28 +161,34 @@ def main():
     drop_ratio = task_config['drop_ratio']
 
     train_transforms = Compose([
-        # Lambda(dataloader.binarize),
+        transforms.RandomApply([
+            RandomAffine(degrees=(-10, 10), scale=(0.9, 1.1), translate=(0.1, 0.1), fill=0),
+            transforms.GaussianBlur(kernel_size=3),
+        ], p=train_ratio),
+        transforms.RandomApply([
+            transforms.RandomAutocontrast(),
+            transforms.RandomPerspective(distortion_scale=0.6),
+            transforms.RandomAdjustSharpness(sharpness_factor=2),
+        ], p=train_ratio),
+        RandomPad(),
         RandomPixelDrop(drop_ratio=drop_ratio),
-        Lambda(dataloader.random_shift),
-        Lambda(dataloader.random_scale),
         transforms.Resize(img_size),
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ])
 
     val_transforms = transforms.Compose([
-        # Lambda(dataloader.binarize),
         transforms.Resize(img_size),
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ])
 
-    train_dataset = dataloader.TextRecognitionDataset('dataset', train_transforms)
-    valid_dataset = dataloader.TextRecognitionDataset('dataset', val_transforms)
+    train_dataset = data_loader.FontDataset(img_size=30, font_size=30, transform=train_transforms)
+    valid_dataset = data_loader.FontDataset(img_size=30, font_size=30, transform=val_transforms)
     train_size = len(train_dataset)
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=1)
-    valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=True, num_workers=1)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=5)
+    valid_loader = DataLoader(valid_dataset, batch_size=batch_size * 2, shuffle=True, num_workers=5)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -178,7 +207,7 @@ def main():
 
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.AdamW(model.parameters(), lr=1e-3)
-    scheduler = StepLR(optimizer, step_size=10, gamma=0.3)
+    scheduler = StepLR(optimizer, step_size=25, gamma=0.3)
     # optimizer = optim.SGD(model.parameters(), lr=1e-4, momentum=0.9)
     num_epochs = 201
 
@@ -218,24 +247,24 @@ def main():
         writer.add_scalar('training loss', epoch_loss, epoch)
         writer.add_scalar('accuracy/training', epoch_acc, epoch)
 
-        # Log the histograms of weights
-        for name, param in model.named_parameters():
-            if 'weight' in name:
-                writer.add_histogram('w/' + name, param.data.cpu().numpy(), epoch)
-
         # decay learning rate
         if epoch % 2 == 0 and epoch != 0:
             scheduler.step()
 
         # Validation and confusion matrix
-        if epoch % 5 == 0:
+        if epoch % 10 == 0:
+
+            # Log the histograms of weights
+            for name, param in model.named_parameters():
+                if 'weight' in name:
+                    writer.add_histogram('w/' + name, param.data.cpu().numpy(), epoch)
+
             model.eval()
             last_val_samples = None
             val_preds = []
             val_labels = []
             with torch.no_grad():
                 for inputs, labels in valid_loader:
-                # for inputs, labels in valid_loader:
                     inputs = inputs.to(device)
                     labels = labels.to(device)
 
@@ -256,13 +285,13 @@ def main():
             last_train_samples = [inv_normalize(t) for t in last_train_samples]
 
             # Record the last validation inputs with a 5x5 grid
-            grid = vutils.make_grid(last_train_samples[:25], nrow=5, normalize=True, scale_each=True)
+            grid = vutils.make_grid(last_train_samples[:30], nrow=5, normalize=True, scale_each=True)
             grid = F.interpolate(grid.unsqueeze(0), scale_factor=0.5, mode='bilinear', align_corners=False).squeeze(0)
             writer.add_image('image/train', grid, epoch)
             last_val_samples = last_val_samples.cpu()
             writer.add_histogram('img/valid', torch.flatten(last_val_samples), epoch)
             last_val_samples = [inv_normalize(t) for t in last_val_samples]
-            grid = vutils.make_grid(last_val_samples[:25], nrow=5, normalize=True, scale_each=True)
+            grid = vutils.make_grid(last_val_samples[:30], nrow=5, normalize=True, scale_each=True)
             grid = F.interpolate(grid.unsqueeze(0), scale_factor=0.5, mode='bilinear', align_corners=False).squeeze(0)
             writer.add_image('image/valid', grid, epoch)
 
