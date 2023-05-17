@@ -1,13 +1,8 @@
-from PIL import Image
-from torch.utils.data import Dataset
-from torchvision.transforms import ToTensor, Normalize
-from get_str_image import FontDrawer
 import torch
 import torch.nn as nn
 from torchvision.models import mobilenet_v3_small
 from transformers import DistilBertModel
 import torch.nn.functional as F
-import math
 
 
 class CustomOCRNet(nn.Module):
