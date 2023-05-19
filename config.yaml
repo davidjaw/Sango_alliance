@@ -5,4 +5,5 @@ debug: True
 toolbar_left: False
 out_file: out.csv
 nn_config:
-  img_size: [96, 96]
+  img_size: [48, 390]
+  batch_size: 72

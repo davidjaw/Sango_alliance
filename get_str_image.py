@@ -68,7 +68,7 @@ class FontDrawer:
             self,
             str_len: int,
             transform=None,
-    ) -> Tuple[np.ndarray, List[int], List[int]]:
+    ) -> Tuple[np.ndarray, List[int], List[int], List[int]]:
         random_sampled = random.sample(self.data, str_len)
 
         result = None
@@ -104,7 +104,7 @@ class FontDrawer:
         for i in range(self.max_str_len - str_len):
             indices.append(-1)
             spaces.append(-1)
-        return result, indices, spaces
+        return result, indices, spaces, [1 if i < str_len else 0 for i in range(self.max_str_len)]
 
     @staticmethod
     def char_exists(font, unicode_val) -> bool:
