@@ -84,7 +84,8 @@ class FontDrawer:
                 raise Exception(f"Character '{char}' not found in either font file.")
 
             # Create the image
-            img = self.draw_char(img_size=self.img_size, font_size=self.font_size, target_font_file=font_file, target_char=char)
+            r_font_size = random.randint(self.font_size - 2, self.font_size + 5)
+            img = self.draw_char(img_size=self.img_size, font_size=r_font_size, target_font_file=font_file, target_char=char)
             img = np.asarray(img).copy()
             if transform is not None:
                 img = transform(Image.fromarray(img))
@@ -137,15 +138,15 @@ if __name__ == '__main__':
     # cv2.waitKey(0)
 
     """ Test draw_n """
-    # for _ in range(20):
-    #     result, indices, spaces = drawer.draw_n(10)
-    #     result_flat = np.max(result, axis=0, keepdims=True)
-    #     result_flat[result_flat > 0] = 255
-    #     final = cv2.vconcat([result, result_flat])
-    #     final = cv2.resize(final, (final.shape[1] * 5, final.shape[0] * 5), interpolation=cv2.INTER_NEAREST)
-    #     print(spaces)
-    #     cv2.imshow('final', final)
-    #     cv2.waitKey(0)
+    for _ in range(20):
+        result, indices, spaces, s_len = drawer.draw_n(6)
+        result_flat = np.max(result, axis=0, keepdims=True)
+        result_flat[result_flat > 0] = 255
+        final = cv2.vconcat([result, result_flat])
+        final = cv2.resize(final, (final.shape[1] * 5, final.shape[0] * 5), interpolation=cv2.INTER_NEAREST)
+        print(spaces)
+        cv2.imshow('final', final)
+        cv2.waitKey(0)
 
     """ check the distribution of the char's width """
     data = drawer.data

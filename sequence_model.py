@@ -11,15 +11,14 @@ import copy
 
 class CustomTransformerDecoderLayer(nn.Module):
     def __init__(self, d_model: int, nhead: int, dim_feedforward: int = 2048, dropout: float = 0.1,
-                 activation: Union[str, Callable[[Tensor], Tensor]] = F.relu,
+                 activation: Union[str, Callable[[Tensor], Tensor]] = F.gelu,
                  layer_norm_eps: float = 1e-5, batch_first: bool = False, norm_first: bool = False,
-                 device=None, dtype=None, seq_len=1, batch_size=1) -> None:
+                 device=None, dtype=None, seq_len=1, batch_size=1, with_mhca=False) -> None:
         factory_kwargs = {'device': device, 'dtype': dtype}
         super().__init__()
+        self.with_mhca = with_mhca
         self.self_attn = MultiheadAttention(d_model, nhead, dropout=dropout, batch_first=batch_first,
                                             **factory_kwargs)
-        self.multihead_cross_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout, batch_first=batch_first,
-                                                          **factory_kwargs)
         # Implementation of Feedforward model
         self.linear1 = Linear(d_model, dim_feedforward, **factory_kwargs)
         self.dropout = Dropout(dropout)
@@ -28,22 +27,25 @@ class CustomTransformerDecoderLayer(nn.Module):
         self.norm_first = norm_first
         self.norm1 = LayerNorm(d_model, eps=layer_norm_eps, **factory_kwargs)
         self.norm2 = LayerNorm(d_model, eps=layer_norm_eps, **factory_kwargs)
-        self.norm3 = LayerNorm(d_model, eps=layer_norm_eps, **factory_kwargs)
         self.dropout1 = Dropout(dropout)
         self.dropout2 = Dropout(dropout)
-        self.dropout3 = Dropout(dropout)
+        if self.with_mhca:
+            self.multihead_cross_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout, batch_first=batch_first,
+                                                              **factory_kwargs)
+            self.pre_cross_attention = nn.Linear(seq_len, d_model, **factory_kwargs)
+            self.norm3 = LayerNorm(d_model, eps=layer_norm_eps, **factory_kwargs)
+            self.dropout3 = Dropout(dropout)
 
         self.activation = activation
         self.index_vector = torch.eye(seq_len, **factory_kwargs)
         self.index_vector = self.index_vector.unsqueeze(0).repeat(batch_size, 1, 1)
-        self.index_vector = nn.Parameter(self.index_vector, requires_grad=False)
-        self.pre_cross_attention = nn.Linear(seq_len, d_model, **factory_kwargs)
+        self.index_vector = self.index_vector.to(device)
 
     def _mhca_block(self, x: Tensor) -> Tensor:
         query = self.pre_cross_attention(self.index_vector)
         query = query.view(query.size(1), query.size(0), -1)
         x = self.multihead_cross_attn(query, x, x)[0]
-        return self.dropout2(x)
+        return self.dropout3(x)
 
     def forward(
             self,
@@ -55,13 +57,15 @@ class CustomTransformerDecoderLayer(nn.Module):
     ) -> Tensor:
         x = tgt
         if self.norm_first:
-            x = x + self._mhca_block(self.norm2(x))
+            if self.with_mhca:
+                x = x + self._mhca_block(self.norm3(x))
             x = x + self._sa_block(self.norm1(x), tgt_mask, tgt_key_padding_mask, tgt_is_causal)
-            x = x + self._ff_block(self.norm3(x))
+            x = x + self._ff_block(self.norm2(x))
         else:
-            x = self.norm2(x + self._mhca_block(x))
+            if self.with_mhca:
+                x = self.norm3(x + self._mhca_block(x))
             x = self.norm1(x + self._sa_block(x, tgt_mask, tgt_key_padding_mask, tgt_is_causal))
-            x = self.norm3(x + self._ff_block(x))
+            x = self.norm2(x + self._ff_block(x))
         return x
 
     def __setstate__(self, state):
@@ -81,12 +85,15 @@ class CustomTransformerDecoderLayer(nn.Module):
     # feed forward block
     def _ff_block(self, x: Tensor) -> Tensor:
         x = self.linear2(self.dropout(self.activation(self.linear1(x))))
-        return self.dropout3(x)
+        return self.dropout2(x)
 
 
-class CustomTransformerDecoder(nn.TransformerDecoder):
+class CustomTransformerDecoder(nn.Module):
     def __init__(self, decoder_layer, num_layers, norm=None):
-        super().__init__(decoder_layer, num_layers, norm)
+        super(CustomTransformerDecoder, self).__init__()
+        self.layers = nn.ModuleList([decoder_layer] + [copy.deepcopy(decoder_layer) for _ in range(num_layers - 1)])
+        self.num_layers = num_layers
+        self.norm = norm
 
     def forward(self, tgt: Tensor, tgt_mask: Optional[Tensor] = None, tgt_key_padding_mask: Optional[Tensor] = None,
                 **kwargs) -> Tensor:
@@ -144,6 +151,7 @@ class CustomOCRNet(nn.Module):
             seq_len=6,
             class_num=4870,
             batch_size=1,
+            **factory_kwargs
     ):
         super(CustomOCRNet, self).__init__()
         output_c = 512
@@ -162,10 +170,11 @@ class CustomOCRNet(nn.Module):
             nn.Hardswish(),
         )
         self.img_to_seq = Image2Sequence(seq_len=seq_len * 2, d_model=output_c)
-        self.transformer_eye = CustomTransformerDecoderLayer(d_model=output_c, nhead=attention_heads,
-                                                             batch_size=batch_size, seq_len=seq_len * 2,
-                                                             dim_feedforward=output_c * 2)
-        self.transformer_network = CustomTransformerDecoder(self.transformer_eye, num_layers=4)
+        self.transformer = CustomTransformerDecoderLayer(d_model=output_c, nhead=attention_heads,
+                                                         batch_size=batch_size, seq_len=seq_len * 2,
+                                                         dim_feedforward=output_c // 2, norm_first=True,
+                                                         **factory_kwargs)
+        self.transformer_network = CustomTransformerDecoder(self.transformer, num_layers=2)
         # Regression head: output is a sequence of length 0 to 6, each element being a regression output for width
         self.regression_head = nn.Sequential(
             nn.Linear(output_c, 1),
@@ -178,7 +187,9 @@ class CustomOCRNet(nn.Module):
         semantic_feature = self.mobilenet_post(spatial_feature)
         semantic_feature = self.pre_seq_estimation(semantic_feature)
 
-        semantic_skip_feature = F.interpolate(semantic_feature, size=(spatial_feature.shape[2], spatial_feature.shape[3]), mode='bilinear', align_corners=True)
+        semantic_skip_feature = F.interpolate(semantic_feature,
+                                              size=(spatial_feature.shape[2], spatial_feature.shape[3]),
+                                              mode='bilinear', align_corners=True)
 
         semantic_feature = torch.flatten(semantic_feature, start_dim=1)
         seq_logit = self.seq_estimation_head(semantic_feature)
@@ -188,7 +199,7 @@ class CustomOCRNet(nn.Module):
         seq_feature = self.img_to_seq(spatial_feature)
         feature = self.transformer_network(seq_feature)
         feature = self.max_pool(feature.permute(1, 2, 0))
-        feature = feature.permute(2, 0, 1)
+        feature = feature.permute(0, 2, 1)
 
         # Get regression and classification outputs
         regression_outputs = self.regression_head(feature)
@@ -201,7 +212,7 @@ def main():
     import time
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     batch_size = 3
-    model = CustomOCRNet(batch_size=batch_size)
+    model = CustomOCRNet(batch_size=batch_size, device='cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device)
     random_inputs = torch.randn(batch_size, 3, 48, 380).to(device)
     print("Input shape: {}".format(random_inputs.shape))
@@ -216,8 +227,8 @@ def main():
     for i in range(100):
         model(random_inputs)
     total_time = time.time() - st_time
-    print(f'100 forward passes took {total_time} seconds, FPS={100/total_time}')
-    torch.save(model.state_dict(), 'weights/ocr.pth')
+    print(f'100 forward passes took {total_time} seconds, FPS={100 / total_time}')
+    torch.save(model.state_dict(), 'weights/ocr-test.pth')
 
 
 if __name__ == "__main__":

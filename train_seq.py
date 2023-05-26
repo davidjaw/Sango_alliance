@@ -20,6 +20,8 @@ import torch.nn.functional as F
 from torch.optim.lr_scheduler import StepLR, CyclicLR, ReduceLROnPlateau
 from data_loader import CustomOCRDataset, prepare_data_transform
 from sequence_model import CustomOCRNet
+from dadaptation import DAdaptAdam, DAdaptLion, DAdaptSGD
+from utils import Adafactor
 
 
 def main():
@@ -30,7 +32,7 @@ def main():
     nn_config = config['nn_config']
     img_size = nn_config['img_size']
     batch_size = nn_config['batch_size']
-    train_size = 1e3
+    train_size = 3e4
     valid_size = 1e3
 
     train_transform = prepare_data_transform()
@@ -43,28 +45,33 @@ def main():
                                                num_workers=4, drop_last=True)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = CustomOCRNet(class_num=len(data), batch_size=batch_size)
-    st_dict = torch.load(f'weights/ocr.pth')
-    model.load_state_dict(st_dict)
+    model = CustomOCRNet(class_num=len(data), batch_size=batch_size,
+                         device='cuda' if torch.cuda.is_available() else 'cpu')
+    # st_dict = torch.load(f'weights/ocr.pth')
+    # model.load_state_dict(st_dict)
     model.to(device)
     images, labels = next(iter(train_loader))
     images = images.to(device)
-    writer = SummaryWriter(f'runs')
+    writer = SummaryWriter(f'runs/Adafactor')
     writer.add_graph(model, images)
 
     loss_c = nn.CrossEntropyLoss()
     loss_r = nn.SmoothL1Loss()
-    optimizer = optim.AdamW(model.parameters(), lr=1e-3)
+    # optimizer = optim.AdamW(model.parameters(), lr=1e-3)
+    # optimizer = DAdaptAdam(model.parameters(), lr=1, betas=(0.9, 0.999), eps=1e-8, weight_decay=0.01)
+    # optimizer = DAdaptSGD(model.parameters(), lr=1.)
+    optimizer = Adafactor(model.parameters(), warmup_init=True, relative_step=True)
     # scheduler = StepLR(optimizer, step_size=30, gamma=0.3)
-    scheduler = ReduceLROnPlateau(optimizer, mode='min', patience=5, factor=0.1, verbose=True)
+    # scheduler = ReduceLROnPlateau(optimizer, mode='min', patience=5, factor=0.1, verbose=True)
 
     # optimizer = optim.SGD(model.parameters(), lr=1e-4, momentum=0.9)
-    num_epochs = 201
+    num_epochs = 156
 
     for epoch in range(num_epochs):
         model.train()
         running_loss = 0.0
         running_corrects = 0
+        running_sample = 0
         epoch_loss_r, epoch_loss_c, epoch_loss_s = 0, 0, 0
 
         last_train_samples = None
@@ -94,9 +101,10 @@ def main():
             pred = torch.argmax(output_c_logit[label_mask].squeeze(-1), dim=1)
             running_loss += loss.item() * inputs.size(0)
             running_corrects += torch.sum(pred == text_idx[label_mask].data)
+            running_sample += torch.count_nonzero(label_mask).item()
 
         epoch_loss = running_loss / train_size
-        epoch_acc = running_corrects.double() / train_size
+        epoch_acc = running_corrects.double() / running_sample
         print(f'[{epoch}/{num_epochs}]Train Loss: {epoch_loss:.4f} Acc: {epoch_acc:.4f}')
 
         # Log the scalar values
@@ -112,47 +120,56 @@ def main():
             if 'weight' in name or 'bias' in name:
                 writer.add_histogram(name, param.data.cpu().numpy(), epoch)
 
-        # decay learning rate
-        if epoch % 10 == 0 and epoch != 0:
-            scheduler.step(epoch_loss)
+        # # decay learning rate
+        # if epoch % 10 == 0 and epoch != 0:
+        #     scheduler.step(epoch_loss)
 
         # Validation and confusion matrix
         if epoch % 5 == 0:
             model.eval()
+            last_valid_samples = None
             val_preds = []
             val_labels = []
             val_seq_labels = []
             val_seq_preds = []
+            val_sample = 0
             with torch.no_grad():
                 for inputs, labels in valid_loader:
                     inputs = inputs.to(device)
+                    last_valid_samples = inputs
                     label_mask = labels[2].to(device).bool()
                     text_idx = labels[1].to(device)
                     label_seq_len = torch.sum(label_mask, dim=-1, dtype=torch.int64) - 1
                     output_r, output_c_logit, output_seq = model(inputs)
 
-                    val_preds.extend(output_c_logit[label_mask].cpu().numpy())
+                    val_preds.extend(torch.argmax(output_c_logit, -1)[label_mask].cpu().numpy())
                     val_labels.extend(text_idx[label_mask].cpu().numpy())
                     val_seq_preds.extend(output_seq.cpu().numpy())
                     val_seq_labels.extend(label_seq_len.cpu().numpy())
+                    val_sample += torch.count_nonzero(label_mask).item()
 
             # Apply the inverse transformation to the last validation inputs
             last_train_samples = last_train_samples.cpu()
+            last_valid_samples = last_valid_samples.cpu()
             inv_normalize = transforms.Normalize(
                 mean=[-0.485 / 0.229, -0.456 / 0.224, -0.406 / 0.225],
                 std=[1 / 0.229, 1 / 0.224, 1 / 0.225]
             )
             last_train_samples = [inv_normalize(t) for t in last_train_samples]
+            last_valid_samples = [inv_normalize(t) for t in last_valid_samples]
 
             # Record the last validation inputs with a 5x5 grid
             grid = vutils.make_grid(last_train_samples[:25], nrow=5, normalize=True, scale_each=True)
             grid = F.interpolate(grid.unsqueeze(0), scale_factor=0.5, mode='bilinear', align_corners=False).squeeze(0)
-            writer.add_image('Validation Images', grid, epoch)
+            writer.add_image('images/train', grid, epoch)
+            grid = vutils.make_grid(last_valid_samples[:25], nrow=5, normalize=True, scale_each=True)
+            grid = F.interpolate(grid.unsqueeze(0), scale_factor=0.5, mode='bilinear', align_corners=False).squeeze(0)
+            writer.add_image('images/valid', grid, epoch)
 
             val_preds = np.array(val_preds)
             val_labels = np.array(val_labels)
 
-            accuracy = np.count_nonzero(val_preds == val_labels) / len(val_labels)
+            accuracy = np.count_nonzero(val_preds == val_labels) / val_sample
             writer.add_scalar('accuracy/valid_class', accuracy, epoch)
             accuracy = np.count_nonzero(np.argmax(val_seq_preds, axis=1) == val_seq_labels) / len(val_seq_labels)
             writer.add_scalar('accuracy/valid_seq_len', accuracy, epoch)

@@ -11,6 +11,7 @@ import numpy as np
 import yaml
 import torch.nn.functional as F
 from get_str_image import FontDrawer
+from typing import List, Tuple, Iterable
 
 
 def prepare_data_transform(mode='train'):
@@ -50,6 +51,43 @@ class ThresholdAugmentation(object):
         return img_augmented
 
 
+def left_align_and_pad(img_size: List[int] | Tuple[int] | None = None, target_w: int = 150):
+    if img_size is None:
+        raise Exception("img_size must be specified.")
+
+    def func(images: np.ndarray | List[np.ndarray]):
+        if not isinstance(images, list):
+            images = [images]
+        imgs = []
+        for img in images:
+            img_w = img.shape[1]
+            # pad zeros to right if not long enough
+            if img_w < target_w:
+                img = np.pad(img, ((2, 2), (0, target_w - img_w), (0, 0)), mode='constant')
+            imgs.append(img)
+
+        cv2.imshow('img', np.concatenate(imgs, axis=0))
+        cv2.waitKey(1)
+        batch_img = np.asarray(imgs, dtype=np.float32) / 255.
+        batch_img = resize(torch.from_numpy(batch_img).permute(0, 3, 1, 2), img_size)
+        batch_img = Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])(batch_img)
+
+        return batch_img
+
+    return func
+
+
+def resize(img: torch.Tensor, post_resize: List[int] | Tuple[int] | None = None):
+    flag = False
+    if len(img.shape) == 3:
+        img = img.unsqueeze(0)
+        flag = True
+    img = F.interpolate(img, size=post_resize, mode='nearest')
+    if flag:
+        img = img.squeeze(0)
+    return img
+
+
 class CustomOCRDataset(Dataset):
     def __init__(self, num_samples, transform=None, post_resize=None):
         """ The transform is applied at the drawing stage, and post_transform is applied after the drawing stage. """
@@ -65,7 +103,7 @@ class CustomOCRDataset(Dataset):
     def resize(self, img: torch.Tensor):
         if self.post_resize is None:
             return img
-        return F.interpolate(img.unsqueeze(0), size=self.post_resize, mode='nearest').squeeze(0)
+        return resize(img, self.post_resize)
 
     def width_denormalizer(self, widths):
         print(f'widths: {widths}, scale_factor: {self.scale_factor}')
