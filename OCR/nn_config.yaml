@@ -1,0 +1,12 @@
+default:
+  batch_size: 256
+  img_size:
+    - 96
+    - 96
+  train_ratio: 0.9
+  hs_ratio: 0.1
+  drop_ratio: 0.3
+ocr:
+  batch_size: 256
+  weight_path: ./weights/commander.pth
+  drop_ratio: 0.5
