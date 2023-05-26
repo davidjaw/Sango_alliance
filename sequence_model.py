@@ -4,7 +4,8 @@ from torchvision.models import mobilenet_v3_small
 from torch.nn import MultiheadAttention, Linear, Dropout, LayerNorm
 import torch.nn.functional as F
 from torch import Tensor
-from typing import Union, Callable, Tuple, List, Optional, Dict
+from typing import Union, Callable, Optional
+import yaml
 import math
 import copy
 
@@ -13,10 +14,12 @@ class CustomTransformerDecoderLayer(nn.Module):
     def __init__(self, d_model: int, nhead: int, dim_feedforward: int = 2048, dropout: float = 0.1,
                  activation: Union[str, Callable[[Tensor], Tensor]] = F.gelu,
                  layer_norm_eps: float = 1e-5, batch_first: bool = False, norm_first: bool = False,
-                 device=None, dtype=None, seq_len=1, batch_size=1, with_mhca=False) -> None:
+                 device=None, dtype=None) -> None:
+        r""" This is a custom transformer decoder layer that does not use `memory` for a Decoder-only design.
+        This function also removed the `_mha_block` since it's attention over tgt and memory.
+        """
         factory_kwargs = {'device': device, 'dtype': dtype}
         super().__init__()
-        self.with_mhca = with_mhca
         self.self_attn = MultiheadAttention(d_model, nhead, dropout=dropout, batch_first=batch_first,
                                             **factory_kwargs)
         # Implementation of Feedforward model
@@ -29,23 +32,8 @@ class CustomTransformerDecoderLayer(nn.Module):
         self.norm2 = LayerNorm(d_model, eps=layer_norm_eps, **factory_kwargs)
         self.dropout1 = Dropout(dropout)
         self.dropout2 = Dropout(dropout)
-        if self.with_mhca:
-            self.multihead_cross_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout, batch_first=batch_first,
-                                                              **factory_kwargs)
-            self.pre_cross_attention = nn.Linear(seq_len, d_model, **factory_kwargs)
-            self.norm3 = LayerNorm(d_model, eps=layer_norm_eps, **factory_kwargs)
-            self.dropout3 = Dropout(dropout)
 
         self.activation = activation
-        self.index_vector = torch.eye(seq_len, **factory_kwargs)
-        self.index_vector = self.index_vector.unsqueeze(0).repeat(batch_size, 1, 1)
-        self.index_vector = self.index_vector.to(device)
-
-    def _mhca_block(self, x: Tensor) -> Tensor:
-        query = self.pre_cross_attention(self.index_vector)
-        query = query.view(query.size(1), query.size(0), -1)
-        x = self.multihead_cross_attn(query, x, x)[0]
-        return self.dropout3(x)
 
     def forward(
             self,
@@ -57,13 +45,9 @@ class CustomTransformerDecoderLayer(nn.Module):
     ) -> Tensor:
         x = tgt
         if self.norm_first:
-            if self.with_mhca:
-                x = x + self._mhca_block(self.norm3(x))
             x = x + self._sa_block(self.norm1(x), tgt_mask, tgt_key_padding_mask, tgt_is_causal)
             x = x + self._ff_block(self.norm2(x))
         else:
-            if self.with_mhca:
-                x = self.norm3(x + self._mhca_block(x))
             x = self.norm1(x + self._sa_block(x, tgt_mask, tgt_key_padding_mask, tgt_is_causal))
             x = self.norm2(x + self._ff_block(x))
         return x
@@ -82,7 +66,6 @@ class CustomTransformerDecoderLayer(nn.Module):
                            need_weights=False)[0]
         return self.dropout1(x)
 
-    # feed forward block
     def _ff_block(self, x: Tensor) -> Tensor:
         x = self.linear2(self.dropout(self.activation(self.linear1(x))))
         return self.dropout2(x)
@@ -90,6 +73,7 @@ class CustomTransformerDecoderLayer(nn.Module):
 
 class CustomTransformerDecoder(nn.Module):
     def __init__(self, decoder_layer, num_layers, norm=None):
+        r""" This custom function only change the way how `self.layers` is initialized. """
         super(CustomTransformerDecoder, self).__init__()
         self.layers = nn.ModuleList([decoder_layer] + [copy.deepcopy(decoder_layer) for _ in range(num_layers - 1)])
         self.num_layers = num_layers
@@ -111,6 +95,10 @@ class CustomTransformerDecoder(nn.Module):
 
 class Image2Sequence(nn.Module):
     def __init__(self, seq_len, d_model, inter_c=384):
+        r""" This function transform an image into a sequence of patches by
+        dividing them horizontally into `seq_len` pieces.
+        [batch, c, h, w] -> [seq_len, batch, c * h * (w // seq_len)]
+        """
         super().__init__()
         self.d_model = d_model
         self.seq_len = seq_len
@@ -124,10 +112,7 @@ class Image2Sequence(nn.Module):
     def forward(self, images):
         batch_size, channels, height, width = images.shape
         if width % self.seq_len != 0:
-            # make sure that the width is divisible by seq_len, pad with zeros if necessary
-            w = (width // self.seq_len + 1) * self.seq_len
-            images = F.pad(images, (0, w - width), mode='constant', value=0)
-            width = w
+            raise ValueError(f"Image width ({width}) must be divisible by seq_len ({self.seq_len})")
 
         patch_w = width // self.seq_len
         patch_h = height
@@ -171,7 +156,6 @@ class CustomOCRNet(nn.Module):
         )
         self.img_to_seq = Image2Sequence(seq_len=seq_len * 2, d_model=output_c)
         self.transformer = CustomTransformerDecoderLayer(d_model=output_c, nhead=attention_heads,
-                                                         batch_size=batch_size, seq_len=seq_len * 2,
                                                          dim_feedforward=output_c // 2, norm_first=True,
                                                          **factory_kwargs)
         self.transformer_network = CustomTransformerDecoder(self.transformer, num_layers=2)
@@ -206,6 +190,19 @@ class CustomOCRNet(nn.Module):
         classification_outputs = self.classification_head(feature)
 
         return regression_outputs, classification_outputs, seq_logit
+
+    @staticmethod
+    def decode_output(out_r, out_c, out_seq, data_file='data.yaml', data=None):
+        if data is None:
+            data = yaml.load(open(data_file, 'r', encoding='utf-8'), Loader=yaml.FullLoader)
+        result = []
+        batch_size = out_r.shape[0]
+        for i in range(batch_size):
+            r, c, seq = out_r[i], out_c[i], out_seq[i]
+            c = c[:seq + 1]
+            text = ''.join([data[x]['content'] for x in c.tolist()])
+            result.append(text)
+        return result
 
 
 def main():

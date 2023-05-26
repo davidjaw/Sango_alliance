@@ -72,10 +72,10 @@ def preprocess_name_patch(img: np.ndarray, model: nn.Module, data_transform: cal
 
     patch_ally_name = preprocess_name(patch_ally[0], patch_ally[2])
     patch_enemy_name = preprocess_name(patch_enemy[0], patch_enemy[2])
-    batch_data = data_transform([patch_ally_name, patch_enemy_name])
+    batch_data = data_transform([patch_ally_name, patch_enemy_name]).to(device)
 
     with torch.no_grad():
-        out_r, out_c_logit, out_seq = model(batch_data.to(device))
+        out_r, out_c_logit, out_seq = model(batch_data)
         out_c = torch.argmax(out_c_logit, dim=-1)
         out_seq = torch.argmax(out_seq, dim=-1)
         out_seq = out_seq.cpu().numpy()
@@ -112,13 +112,8 @@ def main():
     for img_name in img_list:
         img = cv2.imread(os.path.join(full_img_dir, img_name))
         out_r, out_c, out_seq = preprocess_name_patch(img, model, transform_func, device)
-        for i in range(out_c.shape[0]):
-            r, c, seq = out_r[i], out_c[i], out_seq[i]
-            r = r[:seq + 1]
-            c = c[:seq + 1]
-            text = ''.join([data[x]['content'] for x in c.tolist()])
-            print(text)
-        print()
+        text = model.decode_output(out_r, out_c, out_seq, data=data)
+        print(text)
 
 
 if __name__ == '__main__':
