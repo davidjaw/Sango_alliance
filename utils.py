@@ -84,8 +84,8 @@ def left_align_and_pad(img_size: List[int] | Tuple[int] | None = None, target_w:
                 img = np.pad(img, ((2, 2), (3, target_w - img_w - 3), (0, 0)), mode='constant')
             imgs.append(img)
 
-        cv2.imshow('img', np.concatenate(imgs, axis=0).astype(np.uint8))
-        cv2.waitKey(1)
+        # cv2.imshow('img', np.concatenate(imgs, axis=0).astype(np.uint8))
+        # cv2.waitKey(1)
         batch_img = np.asarray(imgs, dtype=np.float32) / 255.
         batch_img = resize(torch.from_numpy(batch_img).permute(0, 3, 1, 2), img_size)
         batch_img = Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])(batch_img)

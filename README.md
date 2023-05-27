@@ -1,10 +1,13 @@
 # 三國志戰略版 同盟戰功擷取工具
 
-贊助我一杯咖啡:
+* 如果支持的話請幫我點個右上角的 `Star`，謝謝!
+![Star Me](https://raw.githubusercontent.com/davidjaw/Sango_alliance/develop/img/star_me_please.png)
+
+* 或贊助我一杯咖啡:
 
 <a href="https://www.buymeacoffee.com/jdway"><img src="https://img.buymeacoffee.com/button-api/?text=Buy me a coffee&emoji=&slug=jdway&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff" /></a>
 
-* 目前僅適用於 三國志戰略版 的電腦版，僅在 Windows 10 測試過，因為我電腦算好，執行時間才會非常快
+* 目前僅適用於 三國志戰略版 的官方電腦版，**並不支援模擬器**，僅在 Windows 10 測試過，因為我電腦算好，執行時間才會非常快
 * 有任何問題可以到 [Github Issue](https://github.com/davidjaw/Sango_alliance/issues), 巴哈文章 或者 Discord 找 `Midori Neko#6514`
 
 ## Demo video
@@ -14,7 +17,7 @@ https://www.youtube.com/watch?v=3twTnTO2wRY
 
 * 可以透過按跳出的 `tk` 視窗進行辨識，或者透過按下空白鍵進行辨識
   * 程式開始執行後要先等待 `tk` 視窗跳出來，他有時候不會跳到最前面
-* 中文辨識方面目前是使用 [CnOCR](https://github.com/breezedeus/CnOCR) 套件，辨識度頗低，但是還是能勉強辨識到ID
+* 中文辨識方面目前是使用我自己搭的 Transformer network, 目前僅支援 0~9, A~Z, a~z 以及 [教育部常用字(pdf)](https://stroke-order.learningweb.moe.edu.tw/download/4808.pdf), 而且並不包含簡體字
   * 可以從座標去判斷到底是誰
   * 截圖的同時也會把原圖存到 `tmp/sc` 和 `tmp/sc-full`, 都是有跡可循
 * 開始執行後記得不要再移動遊戲視窗、也不要對視窗縮放
@@ -63,26 +66,20 @@ pip3 install torch torchvision torchaudio --index-url https://download.pytorch.o
 pip3 install torch torchvision torchaudio
 ```
 
-5. 先安裝該死的 `Polygon3`
-* 這個 library compile 有一些 C++ 套件相關的坑，這是我 compile 過的檔案，目前測試 win10, win11 應該是能直接用這個檔案安裝，如果有安全疑慮也可以略過這步驟自己用 `pip` compile
-  * 特別感謝 `宇佐美暁` 幫忙花一堆時間踩坑測試
-```ps1
-pip install .\whl\Polygon3-3.0.9.1-cp310-cp310-win_amd64.whl
-```
-
-6. 安裝其他套件
+5. 安裝其他套件
 ```ps1
 pip3 install -r requirements.txt
 ```
 
-7. 把你三國志戰略版的視窗放到左上角 (雙螢幕的話放到主螢幕的左上角)
-8. 在 powershell 開啟程式 `python main.py`, 如果有抓到遊戲會有額外的視窗跳出來
+6. 把你三國志戰略版的視窗放到左上角 (雙螢幕的話放到 **主螢幕** 的左上角)
+7. 在 powershell 開啟程式 `python main.py`, 如果有抓到遊戲會有額外的視窗跳出來
     * 可以按 `Detect` 或者鍵盤的空白鍵進行抓取
       * 可以到 `tmp/sc` 看抓到的圖片
     * 如果都抓完了，關閉跳出來的視窗就會把抓到的資料存到 `out.csv` 檔
     * 如果抓取過程中跳程式錯誤，目前應該只能到 powershell 按下 `Control + C` 終止程式，然後再重新執行
 
 ## Troubleshooting
+* 特別感謝 `宇佐美暁` 幫忙花一堆時間踩坑測試
 ### 1. 執行 `./venv/Scripts/activate` 時報錯
   * 如果是說找不到 `activate`，將命令改成 `./venv/Scripts/Activate.ps1` 或 `./venv/Scripts/activate.bat`
   * 如果是說`venv\Scripts\Activate.ps1 cannot be loaded because running scripts is disabled on this system. For more information, see about_Execution_Policies`, 先嘗試解法 1，沒效再試試看解法 2

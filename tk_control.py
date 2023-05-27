@@ -6,10 +6,8 @@ import tkinter as tk
 from utils import ScreenCap, NeuralNetworks
 import keyboard
 from tabulate import tabulate
-from cnocr import CnOcr
 import csv
 import matplotlib
-import matplotlib.pyplot as plt
 import torch
 from torch.nn import Module
 matplotlib.use('TkAgg')
@@ -261,7 +259,6 @@ def detect_user_block(img: np.ndarray, model: NeuralNetworks | None = None,
 if __name__ == '__main__':
     import yaml
     from utils import left_align_and_pad, CustomOCRNet
-    import torch
     config = yaml.load(open('config.yaml', 'r'), Loader=yaml.FullLoader)
     nn = NeuralNetworks(
         pt_path='nn.pt',
