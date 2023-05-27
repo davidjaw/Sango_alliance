@@ -8,8 +8,9 @@ import yaml
 from utils import ScreenCap
 from tk_control import TkController
 import time
-from cnocr import CnOcr
 from utils import NeuralNetworks
+from utils import left_align_and_pad, CustomOCRNet
+import torch
 
 
 def parse_args():
@@ -47,7 +48,15 @@ def main(args: dict):
         loc = sc.match_icon()
     sc.adjust_region(loc)
     # load models and configs
-    ocr = CnOcr(rec_model_name='chinese_cht_PP-OCRv3')
+    config = yaml.load(open('ocr_config.yaml', 'r'), Loader=yaml.FullLoader)
+    data = yaml.load(open('data.yaml', 'r', encoding='utf-8'), Loader=yaml.FullLoader)
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    ocr = CustomOCRNet(class_num=len(data), batch_size=1, device=device)
+    st_dict = torch.load(f'weights/ocr_epoch_300.pth')
+    ocr.load_state_dict(st_dict)
+    ocr.to(device)
+    ocr.eval()
+    transform_func = left_align_and_pad(config['nn_config']['img_size'])
     config = yaml.load(open('config.yaml', 'r'), Loader=yaml.FullLoader)
     nn = NeuralNetworks(
         pt_path='nn.pt',
@@ -55,7 +64,7 @@ def main(args: dict):
     )
     # create tk controller
     root = tk.Tk()
-    tk_controller = TkController(root, sc, ocr, args['debug'], model=nn, out_file=config['out_file'])
+    tk_controller = TkController(root, sc, ocr, args['debug'], model=nn, out_file=config['out_file'], transform=transform_func)
     tk_controller.mainloop()
 
 

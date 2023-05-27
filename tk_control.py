@@ -10,6 +10,8 @@ from cnocr import CnOcr
 import csv
 import matplotlib
 import matplotlib.pyplot as plt
+import torch
+from torch.nn import Module
 matplotlib.use('TkAgg')
 
 
@@ -37,7 +39,7 @@ class TkController(object):
             self,
             tk_root: tk.Tk,
             screen_cap: ScreenCap,
-            ocr: CnOcr | None,
+            ocr: Module | None,
             debug: bool = False,
             **kwargs,
     ):
@@ -83,7 +85,7 @@ class TkController(object):
         else:
             idx = len(os.listdir(out_dir))
         cv2.imwrite(f'{out_dir}/sc-{idx}.png', img)
-        data = detect_user_block(img, reader=self.ocr, **self.kwargs)
+        data = detect_user_block(img, ocr_model=self.ocr, **self.kwargs)
         for idx, d in enumerate(data):
             if d[-1] not in self.coord_dict:
                 self.coord_dict.append(d[-1])
@@ -94,8 +96,11 @@ class TkController(object):
         self.tk_root.mainloop()
 
 
-def detect_user_block(img: np.ndarray, reader: CnOcr | None = None, model: NeuralNetworks | None = None, **_)\
-        -> List[List[str | int]]:
+def detect_user_block(img: np.ndarray, model: NeuralNetworks | None = None,
+                      ocr_model=None, transform: callable = None, device=None, data=None, **_) -> List[List[str | int]]:
+    if device is None:
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = torch.device(device)
     img = img[170:615, 30:1100]
     idx = 0
     out_dir = 'tmp/sc-full'
@@ -170,15 +175,20 @@ def detect_user_block(img: np.ndarray, reader: CnOcr | None = None, model: Neura
         mask = np.where(mask_ori > mask_heq, mask_ori, mask_heq)
         name_p = mask[:, :, None] * y_section[0][1].astype(np.float32)
         name_p = np.max(name_p, axis=-1)
-        name_p = name_p / np.max(name_p) * 255
+        # name_p = cv2.equalizeHist(name_p.astype(np.uint8))
+        # name_p = name_p / np.max(name_p) * 255
         # cv2.imwrite(f'{name_dir}/name-{random_int}-{i}.png', name_p.astype(np.uint8))
         # cv2.imwrite(f'{name_dir}/name-{random_int}-{i}-2.png', (mask_heq * 255.).astype(np.uint8))
         name_patch.append(name_p)
         digit_patch.extend(y_section[1:])
     # predict name
     # name_patch_np = np.asarray(name_patch)
-    name_pred = reader.ocr_for_single_lines(name_patch)
-    name_pred = [n['text'] for n in name_pred]
+    with torch.no_grad():
+        custom_name_patch = transform(name_patch).to(device)
+        out_r, out_c, out_seq = ocr_model(custom_name_patch)
+        out_seq = torch.argmax(out_seq, dim=-1)
+        out_c = torch.argmax(out_c, dim=-1)
+    name_pred = ocr_model.decode_output(out_r, out_c, out_seq, data=data)
     for idx, name in enumerate(name_pred):
         # cv2.imshow(f'name-{idx}', name_patch[idx])
         user_data[idx].append(name)
@@ -250,15 +260,26 @@ def detect_user_block(img: np.ndarray, reader: CnOcr | None = None, model: Neura
 
 if __name__ == '__main__':
     import yaml
-    reader = CnOcr(rec_model_name='chinese_cht_PP-OCRv3')
+    from utils import left_align_and_pad, CustomOCRNet
+    import torch
     config = yaml.load(open('config.yaml', 'r'), Loader=yaml.FullLoader)
     nn = NeuralNetworks(
         pt_path='nn.pt',
         config=config['nn_config']
     )
+    config = yaml.load(open('ocr_config.yaml', 'r'), Loader=yaml.FullLoader)
+    data = yaml.load(open('data.yaml', 'r', encoding='utf-8'), Loader=yaml.FullLoader)
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    model = CustomOCRNet(class_num=len(data), batch_size=1, device=device)
+    st_dict = torch.load(f'weights/ocr_epoch_300.pth')
+    model.load_state_dict(st_dict)
+    model.to(device)
+    model.eval()
+    transform_func = left_align_and_pad(config['nn_config']['img_size'])
+
     imgs = os.listdir('tmp/sc')
     for img in imgs:
         print(img)
         img = cv2.imread(f'tmp/sc/{img}')
-        detect_user_block(img, reader, nn)
+        detect_user_block(img, nn, model, transform_func, device, data)
 
